@@ -1,10 +1,12 @@
 package pkg
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/aquasecurity/table"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -17,8 +19,24 @@ type Lobby struct {
 	IsStart bool
 }
 
-func (lobby *Lobby) String() string {
-	return fmt.Sprintf("🎯 Chào mừng bà con cô bác đến với Đoàn Lô Tô Ted Vo!!!\n\nGameId: *%d*\nDanh sách người tham gia\n\n", lobby.GameId)
+func (lobby *Lobby) renderPlayerList() string {
+	buf := new(bytes.Buffer)
+	tb := table.New(buf)
+	tb.SetHeaders("STT", "Username", "Mã vé", "Hò")
+
+	i := 1
+	for _, player := range lobby.players {
+		tb.AddRow(
+			fmt.Sprint(i),
+			fmt.Sprintf("%s", player.Username),
+			fmt.Sprint(player.Ticket.Id.ID()),
+			fmt.Sprint(player.Wait),
+		)
+		i++
+	}
+	tb.Render()
+
+	return buf.String()
 }
 
 type GameControl interface {
@@ -34,16 +52,19 @@ type Player struct {
 	Id       int64
 	Username string
 	Name     string
+	Wait     int
 	Ticket   *Ticket
 }
 
 func (handler *MessageHandler) openGame(update *tgbotapi.Update) error {
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "🎯 Chào mừng bà con cô bác đến với Đoàn Lô Tô Ted Vo")
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
 	chatId := update.Message.Chat.ID
 
 	var currentGame = GameInChatMap[chatId]
 	if currentGame == nil {
 		msg.ReplyMarkup = OpenGameInlineKeyboard
+		msg.Text = "🎯 Chào mừng bà con cô bác đến với Đoàn Lô Tô Ted Vo!"
+		msg.ParseMode = "HTML"
 		respMsg := handler.sendMessage(msg)
 		currentGame = &Lobby{
 			ChatId:  chatId,
@@ -52,13 +73,21 @@ func (handler *MessageHandler) openGame(update *tgbotapi.Update) error {
 		}
 		GameInChatMap[chatId] = currentGame
 
+		text, _ := Parse("./config/game.html",
+			struct {
+				GameId int
+				List   string
+			}{
+				GameId: currentGame.GameId,
+				List:   currentGame.renderPlayerList(),
+			})
 		editMessage := tgbotapi.NewEditMessageTextAndMarkup(
 			chatId,
 			respMsg.MessageID,
-			EscapeSpecialCharacters(currentGame.String()),
+			text,
 			OpenGameInlineKeyboard,
 		)
-		editMessage.ParseMode = "MarkdownV2"
+		editMessage.ParseMode = "HTML"
 
 		handler.editMessage(editMessage)
 	} else {
@@ -84,9 +113,17 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
+	if currentGame.IsStart {
+		return fmt.Errorf("Game đã bắt đầu. Hãy đợi lượt kế tiếp!")
+	}
+
 	registor := update.CallbackQuery.From
 	if len(registor.UserName) < 5 {
 		return fmt.Errorf("Vui lòng cập nhật `username` trước khi báo danh!")
+	}
+
+	if existed := currentGame.players[registor.ID]; existed != nil {
+		return fmt.Errorf("@%s > Báo danh rồi thì ngồi im đi nào!", existed.Username)
 	}
 
 	player := &Player{
@@ -97,33 +134,46 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 			TicketConifg{
 				GameId:         currentGame.GameId,
 				MaxRow:         9,
-				MaxCol:         9,
-				MaxNumberOfRow: 5,
+				MaxCol:         7,
+				MaxNumberOfRow: 4,
 			}),
 	}
 	currentGame.players[registor.ID] = player
 
 	// send ticket for player in Private
+	ticketText, _ := Parse("./config/ticket.html",
+		struct {
+			GameId   int
+			TicketId uint32
+		}{
+			GameId:   currentGame.GameId,
+			TicketId: player.Ticket.Id.ID(),
+		})
 	msgPlayer := tgbotapi.NewMessage(
 		player.Id,
-		EscapeSpecialCharacters(player.Ticket.String()),
+		ticketText,
 	)
-	msgPlayer.ParseMode = "MarkdownV2"
-	msgPlayer.ReplyMarkup = GenerateTicketKeyboard(currentGame.ChatId, player.Ticket.GameId, player.Ticket.board)
+	msgPlayer.ParseMode = "HTML"
+	msgPlayer.ReplyMarkup = GenerateTicketKeyboard(currentGame.ChatId, player.Ticket.Config.GameId, player.Ticket.board)
 	handler.sendMessage(msgPlayer)
 
 	// update list player
-	text := currentGame.String()
-	for _, v := range currentGame.players {
-		text += fmt.Sprintf("@%s - TicketId: *%s*\n", v.Username, v.Ticket.Id)
-	}
+	text, _ := Parse("./config/game.html",
+		struct {
+			GameId int
+			List   string
+		}{
+			GameId: currentGame.GameId,
+			List:   currentGame.renderPlayerList(),
+		})
+
 	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
 		chatId,
 		update.CallbackQuery.Message.MessageID,
-		EscapeSpecialCharacters(text),
-		PlayingInnlineKeyboard,
+		text,
+		OpenGameInlineKeyboard,
 	)
-	editMsg.ParseMode = "MarkdownV2"
+	editMsg.ParseMode = "HTML"
 
 	handler.editMessage(editMsg)
 
@@ -132,12 +182,51 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 
 func (handler *MessageHandler) start(update *tgbotapi.Update) error {
 	// msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+	chatId := update.CallbackQuery.Message.Chat.ID
+	var currentGame = GameInChatMap[chatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
+
+	if currentGame.IsStart {
+		return fmt.Errorf("Game đã bắt đầu rồi mà.")
+	}
+
+	// currentGame.Start()
 
 	return nil
 }
 
-func (handler *MessageHandler) finish(update *tgbotapi.Update) error {
+func (handler *MessageHandler) Pause(update *tgbotapi.Update) error {
+	chatId := update.CallbackQuery.Message.Chat.ID
+	var currentGame = GameInChatMap[chatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
 
+	// currentGame.Pause()
+	return nil
+}
+
+func (handler *MessageHandler) Resume(update *tgbotapi.Update) error {
+	chatId := update.CallbackQuery.Message.Chat.ID
+	var currentGame = GameInChatMap[chatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
+
+	// currentGame.Resume()
+	return nil
+}
+
+func (handler *MessageHandler) finish(update *tgbotapi.Update) error {
+	chatId := update.CallbackQuery.Message.Chat.ID
+	var currentGame = GameInChatMap[chatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
+
+	// currentGame.finish()
 	return nil
 }
 
@@ -181,12 +270,22 @@ func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
 		return nil
 	}
 
+	ticketText, _ := Parse("./config/ticket.html",
+		struct {
+			GameId   int
+			TicketId uint32
+		}{
+			GameId:   currentGame.GameId,
+			TicketId: player.Ticket.Id.ID(),
+		})
 	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
 		chatId,
 		update.CallbackQuery.Message.MessageID,
-		player.Ticket.String(),
+		ticketText,
 		GenerateTicketKeyboard(gameChatId, gameId, player.Ticket.board),
 	)
+	editMsg.ParseMode = "HTML"
+
 	handler.editMessage(editMsg)
 
 	return nil

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/apex/log"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -19,12 +18,16 @@ const (
 
 	ILB_REGISTER = "🎮 Báo danh"
 	ILB_START    = "🎬 Bắt đầu"
+	ILB_PAUSE    = "🎬 Tạm dừng"
+	ILB_RESUME   = "🎬 Tiếp tục"
 	ILB_STOP     = "🎬 Kết thúc"
 	ILB_WAIT     = "💣 Hò"
 	ILB_BINGO    = "🎊 Kinh"
 
 	QUERY_DATA_REGISTER = "query_register"
 	QUERY_DATA_START    = "query_start"
+	QUERY_DATA_PAUSE    = "query_pause"
+	QUERY_DATA_RESUME   = "query_resume"
 	QUERY_DATA_STOP     = "query_stop"
 	QUERY_DATA_WAIT     = "query_wait"
 	QUERY_DATA_BINGO    = "query_bingo"
@@ -39,7 +42,7 @@ var LobbyKeyboard = tgbotapi.NewReplyKeyboard(
 
 var PrivateKeyboard = tgbotapi.NewReplyKeyboard(
 	tgbotapi.NewKeyboardButtonRow(
-		tgbotapi.NewKeyboardButton("Get Ticket"),
+		tgbotapi.NewKeyboardButton("Hello"),
 	),
 )
 
@@ -54,6 +57,7 @@ var OpenGameInlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 
 var PlayingInnlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 	tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(ILB_PAUSE, QUERY_DATA_PAUSE),
 		tgbotapi.NewInlineKeyboardButtonData(ILB_STOP, QUERY_DATA_STOP),
 	),
 )
@@ -65,7 +69,6 @@ type Command interface {
 }
 
 func (handler *MessageHandler) Keyboard(update *tgbotapi.Update) error {
-	log.Infof("%s", update.Message.Text)
 	switch update.Message.Text {
 	case OPEN_GAME:
 		handler.openGame(update)
@@ -87,7 +90,8 @@ func (handler *MessageHandler) InlineKeyboard(update *tgbotapi.Update) error {
 	switch update.CallbackQuery.Data {
 	case QUERY_DATA_REGISTER:
 		if err := handler.register(update); err != nil {
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, err.Error())
+			text := fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, text)
 			handler.sendMessage(msg)
 		}
 	case QUERY_DATA_START:
@@ -96,13 +100,25 @@ func (handler *MessageHandler) InlineKeyboard(update *tgbotapi.Update) error {
 	default:
 		if strings.HasPrefix(update.CallbackQuery.Data, QUERY_DATA_CHECKED) {
 			if err := handler.queryNumerCheck(update); err != nil {
-				msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, err.Error())
+				text := fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+				msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, text)
 				handler.sendMessage(msg)
 			}
 		}
 	}
 
 	return nil
+}
+
+func getQuerier(from *tgbotapi.User) string {
+	var name string
+	if len(from.UserName) > 5 {
+		name = fmt.Sprintf("@%s", from.UserName)
+	} else {
+		name = fmt.Sprintf("%s %s", from.FirstName, from.LastName)
+	}
+
+	return name
 }
 
 func GenerateTicketKeyboard(chatId int64, gameId int, board [][]int) tgbotapi.InlineKeyboardMarkup {

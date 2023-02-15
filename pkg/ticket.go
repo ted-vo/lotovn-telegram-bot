@@ -19,7 +19,6 @@ const (
 
 type Ticket struct {
 	Id     uuid.UUID
-	GameId int
 	Config TicketConifg
 	board  [][]int
 
@@ -51,10 +50,6 @@ func NewTicket(config TicketConifg) *Ticket {
 	ticket.generateNumbers()
 
 	return ticket
-}
-
-func (ticket *Ticket) String() string {
-	return fmt.Sprintf("Vé tham dự của bạn!\n\nGameId: *%d*\nTicketId: *%s*", ticket.GameId, ticket.Id.String())
 }
 
 func randomNumbersInRange(n int, min, max int) []int {
