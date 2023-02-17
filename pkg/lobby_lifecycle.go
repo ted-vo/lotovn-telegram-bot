@@ -114,6 +114,9 @@ func (seed *Seed) autoRelease(duration time.Duration, releaseChanel chan int, qu
 }
 
 func (game *Game) start() chan int {
+	if game.status() == STARTED {
+		return game.ReleaseChanel
+	}
 	game.Status = STARTED
 	game.seed.init(game.ticketConfig().MaxNumer)
 
@@ -123,6 +126,9 @@ func (game *Game) start() chan int {
 }
 
 func (game *Game) stop() {
+	if game.status() == STOPPED {
+		return
+	}
 	game.Status = STOPPED
 	game.QuitChanel <- true
 	close(game.ReleaseChanel)
@@ -130,11 +136,17 @@ func (game *Game) stop() {
 }
 
 func (game *Game) pause() {
+	if game.status() == PAUSED {
+		return
+	}
 	game.Status = PAUSED
 	game.QuitChanel <- true
 }
 
 func (game *Game) resume() {
+	if game.status() == STARTED {
+		return
+	}
 	game.Status = STARTED
 	go game.seed.autoRelease(game.Interval, game.ReleaseChanel, game.QuitChanel)
 }

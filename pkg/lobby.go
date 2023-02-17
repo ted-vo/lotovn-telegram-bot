@@ -76,7 +76,7 @@ func (handler *MessageHandler) openGame(update *tgbotapi.Update) error {
 				TicketConifg{
 					MaxNumer:       70,
 					MaxRow:         9,
-					MaxCol:         7,
+					MaxCol:         8,
 					MaxNumberOfRow: 4,
 				},
 			),

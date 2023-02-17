@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
@@ -183,30 +184,39 @@ func BeautyResult(numbers []int) string {
 	}
 
 	if len(one) > 0 {
+		sort.Slice(one, func(i, j int) bool { return i < j })
 		tb.AddRows(one)
 	}
 	if len(two) > 0 {
+		sort.Slice(two, func(i, j int) bool { return i < j })
 		tb.AddRows(two)
 	}
 	if len(three) > 0 {
+		sort.Slice(three, func(i, j int) bool { return i < j })
 		tb.AddRows(three)
 	}
 	if len(four) > 0 {
+		sort.Slice(four, func(i, j int) bool { return i < j })
 		tb.AddRows(four)
 	}
 	if len(five) > 0 {
+		sort.Slice(five, func(i, j int) bool { return i < j })
 		tb.AddRows(five)
 	}
 	if len(six) > 0 {
+		sort.Slice(six, func(i, j int) bool { return i < j })
 		tb.AddRows(six)
 	}
 	if len(seven) > 0 {
+		sort.Slice(seven, func(i, j int) bool { return i < j })
 		tb.AddRows(seven)
 	}
 	if len(eight) > 0 {
+		sort.Slice(eight, func(i, j int) bool { return i < j })
 		tb.AddRows(eight)
 	}
 	if len(nine) > 0 {
+		sort.Slice(nine, func(i, j int) bool { return i < j })
 		tb.AddRows(nine)
 	}
 

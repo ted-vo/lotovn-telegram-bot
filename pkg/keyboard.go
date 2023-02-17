@@ -18,9 +18,9 @@ const (
 
 	ILB_REGISTER = "🎮 Báo danh"
 	ILB_START    = "🎬 Bắt đầu"
-	ILB_PAUSE    = "🎬 Tạm dừng"
-	ILB_RESUME   = "🎬 Tiếp tục"
-	ILB_STOP     = "🎬 Kết thúc"
+	ILB_PAUSE    = "⏸ Tạm dừng"
+	ILB_RESUME   = "⏯ Tiếp tục"
+	ILB_STOP     = "🏁 Kết thúc"
 	ILB_WAIT     = "💣 Hò"
 	ILB_BINGO    = "🎊 Kinh"
 
