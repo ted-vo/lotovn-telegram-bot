@@ -284,6 +284,9 @@ func (handler *MessageHandler) finish(update *tgbotapi.Update) error {
 		handler.editMessage(editMessage)
 	}
 
+	// remove game
+	GameInChatMap[chatId] = nil
+
 	return nil
 }
 
@@ -372,6 +375,10 @@ func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
+	if currentGame.lifecycle.status() == LOBBY {
+		return fmt.Errorf("Game chưa bắt đầu mà. Bình tĩnh bạn ơi!")
+	}
+
 	currentValue := player.Ticket.board[x][y]
 	if currentValue == 0 {
 		player.Ticket.board[x][y] = -1
@@ -385,9 +392,11 @@ func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
 		struct {
 			GameId   int
 			TicketId uint32
+			Data     string
 		}{
 			GameId:   currentGame.GameId,
 			TicketId: player.Ticket.Id.ID(),
+			Data:     "",
 		})
 	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
 		chatId,
