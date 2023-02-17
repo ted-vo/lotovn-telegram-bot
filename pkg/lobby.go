@@ -72,9 +72,9 @@ func (handler *MessageHandler) openGame(update *tgbotapi.Update) error {
 			GameId:  respMsg.MessageID,
 			players: make(map[int64]*Player),
 			lifecycle: NewGame(
-				time.Second*5,
+				time.Second*10,
 				TicketConifg{
-					MaxNumer:       90,
+					MaxNumer:       70,
 					MaxRow:         9,
 					MaxCol:         7,
 					MaxNumberOfRow: 4,
@@ -149,9 +149,11 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 		struct {
 			GameId   int
 			TicketId uint32
+			Data     string
 		}{
 			GameId:   currentGame.GameId,
 			TicketId: player.Ticket.Id.ID(),
+			Data:     "",
 		})
 	msgPlayer := tgbotapi.NewMessage(
 		player.Id,
@@ -159,7 +161,9 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 	)
 	msgPlayer.ParseMode = "HTML"
 	msgPlayer.ReplyMarkup = GenerateTicketKeyboard(currentGame.ChatId, currentGame.GameId, player.Ticket.board)
-	handler.sendMessage(msgPlayer)
+	resMsg := handler.sendMessage(msgPlayer)
+	// tracked msg of ticket send to player for clear when game end
+	player.Ticket.MessageId = resMsg.MessageID
 
 	handler.updateListPlayerState(currentGame)
 
@@ -186,9 +190,9 @@ func (handler *MessageHandler) start(update *tgbotapi.Update) error {
 		for {
 			res, ok := <-c
 			if ok == false {
-				close(releaseChanel)
 				break
 			}
+			currentGame.lifecycle.addResultSeed(res)
 			handler.sendMessage(tgbotapi.NewMessage(
 				chatId,
 				fmt.Sprintf("Số %d", res)))
@@ -214,7 +218,7 @@ func (handler *MessageHandler) pause(update *tgbotapi.Update) error {
 	msg.ReplyToMessageID = currentGame.GameId
 	handler.sendMessage(msg)
 
-	currentGame.lifecycle.pause()
+	go currentGame.lifecycle.pause()
 
 	handler.updateListPlayerState(currentGame)
 
@@ -249,13 +253,36 @@ func (handler *MessageHandler) finish(update *tgbotapi.Update) error {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
-	currentGame.lifecycle.stop()
+	go currentGame.lifecycle.stop()
 
 	handler.updateListPlayerState(currentGame)
 
 	msg := tgbotapi.NewMessage(chatId, "Kết thúc!")
 	msg.ReplyToMessageID = currentGame.GameId
 	handler.sendMessage(msg)
+
+	// update message ticket for user after game end
+	for _, v := range currentGame.players {
+		ticketText, _ := Parse(
+			"./config/ticket.html",
+			struct {
+				GameId   int
+				TicketId uint32
+				Data     string
+			}{
+				GameId:   v.Ticket.GameId,
+				TicketId: v.Ticket.Id.ID(),
+				Data:     BeautyTicket(v.Ticket.board),
+			})
+
+		editMessage := tgbotapi.NewEditMessageText(
+			v.Id,
+			v.Ticket.MessageId,
+			ticketText,
+		)
+		editMessage.ParseMode = "HTML"
+		handler.editMessage(editMessage)
+	}
 
 	return nil
 }
@@ -302,10 +329,14 @@ func (handler *MessageHandler) bingo(update *tgbotapi.Update) error {
 		struct {
 			Username string
 			TicketId uint32
+			GameId   int
+			Result   string
 			Data     string
 		}{
 			Username: player.Username,
 			TicketId: player.Ticket.Id.ID(),
+			GameId:   currentGame.GameId,
+			Result:   BeautyResult(currentGame.lifecycle.result()),
 			Data:     BeautyTicket(player.Ticket.board),
 		})
 	msg := tgbotapi.NewMessage(gameChatId, text)
@@ -318,7 +349,6 @@ func (handler *MessageHandler) bingo(update *tgbotapi.Update) error {
 	handler.updateListPlayerState(currentGame)
 
 	return nil
-
 }
 
 func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
@@ -393,12 +423,21 @@ func (handler *MessageHandler) updateListPlayerState(game *Lobby) {
 	default:
 	}
 
-	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
-		game.ChatId,
-		game.GameId,
-		text,
-		inlineKeyboard,
-	)
+	var editMsg tgbotapi.EditMessageTextConfig
+	if game.lifecycle.status() == STOPPED {
+		editMsg = tgbotapi.NewEditMessageText(
+			game.ChatId,
+			game.GameId,
+			text,
+		)
+	} else {
+		editMsg = tgbotapi.NewEditMessageTextAndMarkup(
+			game.ChatId,
+			game.GameId,
+			text,
+			inlineKeyboard,
+		)
+	}
 	editMsg.ParseMode = "HTML"
 
 	handler.editMessage(editMsg)

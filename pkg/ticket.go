@@ -18,10 +18,11 @@ const (
 )
 
 type Ticket struct {
-	Id     uuid.UUID
-	GameId int
-	Config TicketConifg
-	board  [][]int
+	Id        uuid.UUID
+	GameId    int
+	MessageId int
+	Config    TicketConifg
+	board     [][]int
 
 	lock sync.RWMutex
 }
@@ -146,10 +147,77 @@ func getSeedByIndex(index int) []int {
 	return values
 }
 
+func BeautyResult(numbers []int) string {
+	buf := new(bytes.Buffer)
+	tb := table.New(buf)
+	var one []string
+	var two []string
+	var three []string
+	var four []string
+	var five []string
+	var six []string
+	var seven []string
+	var eight []string
+	var nine []string
+
+	for _, v := range numbers {
+		if v < 10 {
+			one = append(one, fmt.Sprint(v))
+		} else if v > 9 && v < 20 {
+			two = append(two, fmt.Sprint(v))
+		} else if v > 19 && v < 30 {
+			three = append(three, fmt.Sprint(v))
+		} else if v > 29 && v < 40 {
+			four = append(four, fmt.Sprint(v))
+		} else if v > 39 && v < 50 {
+			five = append(five, fmt.Sprint(v))
+		} else if v > 49 && v < 60 {
+			six = append(six, fmt.Sprint(v))
+		} else if v > 59 && v < 70 {
+			seven = append(seven, fmt.Sprint(v))
+		} else if v > 69 && v < 80 {
+			eight = append(eight, fmt.Sprint(v))
+		} else if v > 79 && v <= 90 {
+			nine = append(nine, fmt.Sprint(v))
+		}
+	}
+
+	if len(one) > 0 {
+		tb.AddRows(one)
+	}
+	if len(two) > 0 {
+		tb.AddRows(two)
+	}
+	if len(three) > 0 {
+		tb.AddRows(three)
+	}
+	if len(four) > 0 {
+		tb.AddRows(four)
+	}
+	if len(five) > 0 {
+		tb.AddRows(five)
+	}
+	if len(six) > 0 {
+		tb.AddRows(six)
+	}
+	if len(seven) > 0 {
+		tb.AddRows(seven)
+	}
+	if len(eight) > 0 {
+		tb.AddRows(eight)
+	}
+	if len(nine) > 0 {
+		tb.AddRows(nine)
+	}
+
+	tb.Render()
+
+	return buf.String()
+}
+
 func BeautyTicket(ticket [][]int) string {
 	buf := new(bytes.Buffer)
 	tb := table.New(buf)
-	tb.SetPadding(1)
 	for _, colValues := range ticket {
 		var converts []string
 		for _, v := range colValues {

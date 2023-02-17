@@ -27,7 +27,7 @@ func (handler *MessageHandler) Command(update *tgbotapi.Update) error {
 
 		handler.removeMessage(update.Message.Chat.ID, update.Message.MessageID)
 	default:
-		msg.Text = "Tạm tời em không hiểu. Để em cập nhật thêm sau nhé!"
+		msg.Text = "Tạm thời em không hiểu. Để em cập nhật thêm sau nhé!"
 	}
 
 	handler.sendMessage(msg)

@@ -24,6 +24,8 @@ type Lifecycle interface {
 	isStarted() bool
 	isPaused() bool
 	ticketConfig() TicketConifg
+	result() []int
+	addResultSeed(number int)
 }
 
 type Game struct {
@@ -31,6 +33,7 @@ type Game struct {
 	Interval      time.Duration
 	TicketConifg  TicketConifg
 	seed          Seed
+	resultSeed    Seed
 	ReleaseChanel chan int
 	QuitChanel    chan bool
 }
@@ -84,6 +87,13 @@ func (seed *Seed) pop() int {
 	return value
 }
 
+func (seed *Seed) push(number int) {
+	seed.lock.Lock()
+	defer seed.lock.Unlock()
+
+	seed.numbers = append(seed.numbers, number)
+}
+
 func (seed *Seed) autoRelease(duration time.Duration, releaseChanel chan int, quit chan bool) {
 	for {
 		select {
@@ -127,6 +137,14 @@ func (game *Game) pause() {
 func (game *Game) resume() {
 	game.Status = STARTED
 	go game.seed.autoRelease(game.Interval, game.ReleaseChanel, game.QuitChanel)
+}
+
+func (game *Game) addResultSeed(number int) {
+	game.resultSeed.push(number)
+}
+
+func (game *Game) result() []int {
+	return game.resultSeed.numbers
 }
 
 func (game *Game) isStarted() bool {
