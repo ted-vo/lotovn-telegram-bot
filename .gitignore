@@ -6,3 +6,4 @@ build/*
 .env
 config/client_secret.json
 *.zip
+scripts/*.service
