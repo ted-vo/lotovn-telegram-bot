@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aquasecurity/table"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -13,10 +14,10 @@ import (
 var GameInChatMap = make(map[int64]*Lobby)
 
 type Lobby struct {
-	ChatId  int64
-	GameId  int
-	players map[int64]*Player
-	IsStart bool
+	ChatId    int64
+	GameId    int
+	players   map[int64]*Player
+	lifecycle Lifecycle
 }
 
 func (lobby *Lobby) renderPlayerList() string {
@@ -70,6 +71,15 @@ func (handler *MessageHandler) openGame(update *tgbotapi.Update) error {
 			ChatId:  chatId,
 			GameId:  respMsg.MessageID,
 			players: make(map[int64]*Player),
+			lifecycle: NewGame(
+				time.Second*5,
+				TicketConifg{
+					MaxNumer:       90,
+					MaxRow:         9,
+					MaxCol:         7,
+					MaxNumberOfRow: 4,
+				},
+			),
 		}
 		GameInChatMap[chatId] = currentGame
 
@@ -113,7 +123,7 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
-	if currentGame.IsStart {
+	if currentGame.lifecycle.isStarted() {
 		return fmt.Errorf("Game đã bắt đầu. Hãy đợi lượt kế tiếp!")
 	}
 
@@ -130,13 +140,7 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 		Id:       registor.ID,
 		Username: registor.UserName,
 		Name:     fmt.Sprintf("%s %s", registor.FirstName, registor.LastName),
-		Ticket: NewTicket(
-			TicketConifg{
-				GameId:         currentGame.GameId,
-				MaxRow:         9,
-				MaxCol:         7,
-				MaxNumberOfRow: 4,
-			}),
+		Ticket:   NewTicket(currentGame.GameId, currentGame.lifecycle.ticketConfig()),
 	}
 	currentGame.players[registor.ID] = player
 
@@ -154,68 +158,87 @@ func (handler *MessageHandler) register(update *tgbotapi.Update) error {
 		ticketText,
 	)
 	msgPlayer.ParseMode = "HTML"
-	msgPlayer.ReplyMarkup = GenerateTicketKeyboard(currentGame.ChatId, player.Ticket.Config.GameId, player.Ticket.board)
+	msgPlayer.ReplyMarkup = GenerateTicketKeyboard(currentGame.ChatId, currentGame.GameId, player.Ticket.board)
 	handler.sendMessage(msgPlayer)
 
-	// update list player
-	text, _ := Parse("./config/game.html",
-		struct {
-			GameId int
-			List   string
-		}{
-			GameId: currentGame.GameId,
-			List:   currentGame.renderPlayerList(),
-		})
-
-	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
-		chatId,
-		update.CallbackQuery.Message.MessageID,
-		text,
-		OpenGameInlineKeyboard,
-	)
-	editMsg.ParseMode = "HTML"
-
-	handler.editMessage(editMsg)
+	handler.updateListPlayerState(currentGame)
 
 	return nil
 }
 
 func (handler *MessageHandler) start(update *tgbotapi.Update) error {
-	// msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
 	chatId := update.CallbackQuery.Message.Chat.ID
 	var currentGame = GameInChatMap[chatId]
 	if currentGame == nil {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
-	if currentGame.IsStart {
+	if currentGame.lifecycle.isStarted() {
 		return fmt.Errorf("Game đã bắt đầu rồi mà.")
 	}
 
-	// currentGame.Start()
+	msg := tgbotapi.NewMessage(chatId, "Game bắt đầu!")
+	msg.ReplyToMessageID = currentGame.GameId
+	handler.sendMessage(msg)
+
+	releaseChanel := currentGame.lifecycle.start()
+	go func(chatId int64, c chan int, handler *MessageHandler) {
+		for {
+			res, ok := <-c
+			if ok == false {
+				close(releaseChanel)
+				break
+			}
+			handler.sendMessage(tgbotapi.NewMessage(
+				chatId,
+				fmt.Sprintf("Số %d", res)))
+		}
+	}(chatId, releaseChanel, handler)
+
+	handler.updateListPlayerState(currentGame)
 
 	return nil
 }
 
-func (handler *MessageHandler) Pause(update *tgbotapi.Update) error {
+func (handler *MessageHandler) pause(update *tgbotapi.Update) error {
 	chatId := update.CallbackQuery.Message.Chat.ID
 	var currentGame = GameInChatMap[chatId]
 	if currentGame == nil {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
+	if currentGame.lifecycle.isPaused() {
+		return fmt.Errorf("Game đã dừng rồi mà.")
+	}
 
-	// currentGame.Pause()
+	msg := tgbotapi.NewMessage(chatId, "Game tạm dừng!")
+	msg.ReplyToMessageID = currentGame.GameId
+	handler.sendMessage(msg)
+
+	currentGame.lifecycle.pause()
+
+	handler.updateListPlayerState(currentGame)
+
 	return nil
 }
 
-func (handler *MessageHandler) Resume(update *tgbotapi.Update) error {
+func (handler *MessageHandler) resume(update *tgbotapi.Update) error {
 	chatId := update.CallbackQuery.Message.Chat.ID
 	var currentGame = GameInChatMap[chatId]
 	if currentGame == nil {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
+	if currentGame.lifecycle.isStarted() {
+		return fmt.Errorf("Game đã bắt đầu rồi mà.")
+	}
 
-	// currentGame.Resume()
+	msg := tgbotapi.NewMessage(chatId, "Game tiếp tục!")
+	msg.ReplyToMessageID = currentGame.GameId
+	handler.sendMessage(msg)
+
+	currentGame.lifecycle.resume()
+
+	handler.updateListPlayerState(currentGame)
+
 	return nil
 }
 
@@ -226,18 +249,76 @@ func (handler *MessageHandler) finish(update *tgbotapi.Update) error {
 		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
 	}
 
-	// currentGame.finish()
+	currentGame.lifecycle.stop()
+
+	handler.updateListPlayerState(currentGame)
+
+	msg := tgbotapi.NewMessage(chatId, "Kết thúc!")
+	msg.ReplyToMessageID = currentGame.GameId
+	handler.sendMessage(msg)
+
 	return nil
 }
 
 func (handler *MessageHandler) wait(update *tgbotapi.Update) error {
+	arrData := strings.Split(update.CallbackQuery.Data, ";")
+	gameChatId, _ := strconv.ParseInt(arrData[1], 10, 64)
+
+	var currentGame = GameInChatMap[gameChatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
+	if currentGame.lifecycle.status() == LOBBY {
+		return fmt.Errorf("Game chưa bắt đầu. Chờ chút nào!")
+	}
+
+	player := currentGame.players[update.CallbackQuery.From.ID]
+	player.Wait += 1
+
+	handler.updateListPlayerState(currentGame)
+
+	handler.sendMessage(tgbotapi.NewMessage(
+		gameChatId,
+		fmt.Sprintf("@%s đợi lần thứ %d", player.Username, player.Wait),
+	))
 
 	return nil
 }
 
 func (handler *MessageHandler) bingo(update *tgbotapi.Update) error {
+	arrData := strings.Split(update.CallbackQuery.Data, ";")
+	gameChatId, _ := strconv.ParseInt(arrData[1], 10, 64)
+
+	var currentGame = GameInChatMap[gameChatId]
+	if currentGame == nil {
+		return fmt.Errorf("Game không tồn tại. Vui lòng mở báo danh!")
+	}
+	if currentGame.lifecycle.status() == LOBBY {
+		return fmt.Errorf("Game chưa bắt đầu. Chờ chút nào!")
+	}
+
+	player := currentGame.players[update.CallbackQuery.From.ID]
+	text, _ := Parse("./config/bingo.html",
+		struct {
+			Username string
+			TicketId uint32
+			Data     string
+		}{
+			Username: player.Username,
+			TicketId: player.Ticket.Id.ID(),
+			Data:     BeautyTicket(player.Ticket.board),
+		})
+	msg := tgbotapi.NewMessage(gameChatId, text)
+	msg.ParseMode = "HTML"
+	msg.ReplyToMessageID = currentGame.GameId
+	handler.sendMessage(msg)
+
+	currentGame.lifecycle.pause()
+
+	handler.updateListPlayerState(currentGame)
 
 	return nil
+
 }
 
 func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
@@ -289,4 +370,36 @@ func (handler *MessageHandler) queryNumerCheck(update *tgbotapi.Update) error {
 	handler.editMessage(editMsg)
 
 	return nil
+}
+
+func (handler *MessageHandler) updateListPlayerState(game *Lobby) {
+	text, _ := Parse("./config/game.html",
+		struct {
+			GameId int
+			List   string
+		}{
+			GameId: game.GameId,
+			List:   game.renderPlayerList(),
+		})
+
+	var inlineKeyboard tgbotapi.InlineKeyboardMarkup
+	switch game.lifecycle.status() {
+	case STARTED:
+		inlineKeyboard = PlayingInnlineKeyboard
+	case PAUSED:
+		inlineKeyboard = PausedInlineKeyboard
+	case LOBBY:
+		inlineKeyboard = OpenGameInlineKeyboard
+	default:
+	}
+
+	editMsg := tgbotapi.NewEditMessageTextAndMarkup(
+		game.ChatId,
+		game.GameId,
+		text,
+		inlineKeyboard,
+	)
+	editMsg.ParseMode = "HTML"
+
+	handler.editMessage(editMsg)
 }

@@ -58,6 +58,17 @@ var OpenGameInlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 var PlayingInnlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 	tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData(ILB_PAUSE, QUERY_DATA_PAUSE),
+	),
+	tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(ILB_STOP, QUERY_DATA_STOP),
+	),
+)
+
+var PausedInlineKeyboard = tgbotapi.NewInlineKeyboardMarkup(
+	tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData(ILB_RESUME, QUERY_DATA_RESUME),
+	),
+	tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData(ILB_STOP, QUERY_DATA_STOP),
 	),
 )
@@ -87,16 +98,28 @@ func (handler *MessageHandler) InlineKeyboard(update *tgbotapi.Update) error {
 		panic(err)
 	}
 
+	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "")
 	switch update.CallbackQuery.Data {
 	case QUERY_DATA_REGISTER:
 		if err := handler.register(update); err != nil {
-			text := fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, text)
-			handler.sendMessage(msg)
+			msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
 		}
 	case QUERY_DATA_START:
-	case QUERY_DATA_WAIT:
-	case QUERY_DATA_BINGO:
+		if err := handler.start(update); err != nil {
+			msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+		}
+	case QUERY_DATA_PAUSE:
+		if err := handler.pause(update); err != nil {
+			msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+		}
+	case QUERY_DATA_RESUME:
+		if err := handler.resume(update); err != nil {
+			msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+		}
+	case QUERY_DATA_STOP:
+		if err := handler.finish(update); err != nil {
+			msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+		}
 	default:
 		if strings.HasPrefix(update.CallbackQuery.Data, QUERY_DATA_CHECKED) {
 			if err := handler.queryNumerCheck(update); err != nil {
@@ -104,7 +127,19 @@ func (handler *MessageHandler) InlineKeyboard(update *tgbotapi.Update) error {
 				msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, text)
 				handler.sendMessage(msg)
 			}
+		} else if strings.HasPrefix(update.CallbackQuery.Data, QUERY_DATA_WAIT) {
+			if err := handler.wait(update); err != nil {
+				msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+			}
+		} else if strings.HasPrefix(update.CallbackQuery.Data, QUERY_DATA_BINGO) {
+			if err := handler.bingo(update); err != nil {
+				msg.Text = fmt.Sprintf("Hey %s => %s", getQuerier(update.CallbackQuery.From), err.Error())
+			}
 		}
+	}
+
+	if len(msg.Text) > 0 {
+		handler.sendMessage(msg)
 	}
 
 	return nil
@@ -146,10 +181,10 @@ func GenerateTicketKeyboard(chatId int64, gameId int, board [][]int) tgbotapi.In
 		keyboard = append(keyboard, row)
 	}
 	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData(ILB_WAIT, QUERY_DATA_WAIT),
+		tgbotapi.NewInlineKeyboardButtonData(ILB_WAIT, fmt.Sprintf("%s;%d;%d", QUERY_DATA_WAIT, chatId, gameId)),
 	))
 	keyboard = append(keyboard, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData(ILB_BINGO, QUERY_DATA_BINGO),
+		tgbotapi.NewInlineKeyboardButtonData(ILB_BINGO, fmt.Sprintf("%s;%d;%d", QUERY_DATA_BINGO, chatId, gameId)),
 	))
 
 	return tgbotapi.InlineKeyboardMarkup{

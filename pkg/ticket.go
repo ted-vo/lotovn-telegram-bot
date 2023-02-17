@@ -19,6 +19,7 @@ const (
 
 type Ticket struct {
 	Id     uuid.UUID
+	GameId int
 	Config TicketConifg
 	board  [][]int
 
@@ -26,17 +27,18 @@ type Ticket struct {
 }
 
 type TicketConifg struct {
+	MaxNumer       int
 	MaxRow         int
 	MaxCol         int
 	MaxNumberOfRow int
-	GameId         int
 }
 
 type None struct{}
 
-func NewTicket(config TicketConifg) *Ticket {
+func NewTicket(gameId int, config TicketConifg) *Ticket {
 	ticket := &Ticket{
 		Id:     uuid.New(),
+		GameId: gameId,
 		Config: config,
 	}
 
@@ -147,11 +149,17 @@ func getSeedByIndex(index int) []int {
 func BeautyTicket(ticket [][]int) string {
 	buf := new(bytes.Buffer)
 	tb := table.New(buf)
+	tb.SetPadding(1)
 	for _, colValues := range ticket {
 		var converts []string
 		for _, v := range colValues {
-			value := ""
-			if v != 0 {
+			var value string
+			switch v {
+			case -1:
+				value = "*"
+			case 0:
+				value = ""
+			default:
 				value = fmt.Sprintf("%d", v)
 			}
 			converts = append(converts, value)
